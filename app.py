@@ -3,8 +3,8 @@ import json
 import os
 from dotenv import load_dotenv
 from criteria_generator import CriteriaGenerator
-
 load_dotenv()
+
 def main():
     st.set_page_config(
         page_title="AI Recruiter - Selection Criteria Generator",
@@ -102,51 +102,31 @@ def display_criteria():
         return
     
     # Summary metrics
-    priority_counts = {}
-    for criterion in criteria:
-        priority = criterion['priority']
-        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+    total_weight = sum(float(c['weight'][:-1]) for c in criteria)
+    must_have_count = sum(1 for c in criteria if c['must_have'] == 'Yes')
     
     # Display metrics
-    metric_cols = st.columns(4)
-    priorities = ['Must-Have', 'Nice-to-Have', 'Bonus Advantage', 'Red Flag']
-    colors = ['🔴', '🔵', '🟡', '⚫']
-    
-    for i, (priority, color) in enumerate(zip(priorities, colors)):
-        with metric_cols[i]:
-            count = priority_counts.get(priority, 0)
-            st.metric(f"{color} {priority}", count)
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    with metric_col1:
+        st.metric("Total Criteria", len(criteria))
+    with metric_col2:
+        st.metric("Must-Have Items", must_have_count)
+    with metric_col3:
+        st.metric("Total Weight", f"{total_weight:.1f}%")
     
     st.divider()
     
     # Display criteria
     for i, criterion in enumerate(criteria, 1):
-        priority = criterion['priority']
-        
-        # Set color based on priority
-        if priority == 'Must-Have':
-            priority_color = '🔴'
-            priority_style = 'error'
-        elif priority == 'Nice-to-Have':
-            priority_color = '🔵'
-            priority_style = 'info'
-        elif priority == 'Bonus Advantage':
-            priority_color = '🟡'
-            priority_style = 'warning'
-        else:  # Red Flag
-            priority_color = '⚫'
-            priority_style = 'error'
-        
-        with st.expander(f"{i}. {criterion['name']} ({priority_color} {priority})", expanded=True):
+        with st.expander(f"{i}. {criterion['name']} ({criterion['weight']})", expanded=True):
             col_left, col_right = st.columns([1, 3])
             
             with col_left:
-                if priority_style == 'error':
-                    st.error(f"{priority_color} {priority}")
-                elif priority_style == 'info':
-                    st.info(f"{priority_color} {priority}")
-                elif priority_style == 'warning':
-                    st.warning(f"{priority_color} {priority}")
+                if criterion['must_have'] == 'Yes':
+                    st.error("🔴 Must-Have")
+                else:
+                    st.info("🔵 Nice-to-Have")
+                st.write(f"**Weight:** {criterion['weight']}")
             
             with col_right:
                 st.write("**Description:**")

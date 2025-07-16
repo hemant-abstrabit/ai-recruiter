@@ -1,5 +1,6 @@
 import json
 import os
+from dotenv import load_dotenv
 import google.generativeai as genai
 from typing import List, Dict, Optional
 
@@ -36,50 +37,47 @@ class CriteriaGenerator:
         if not job_role or not job_role.strip():
             raise ValueError("Job role cannot be empty")
         
-        prompt = f""" 
-You are an expert AI recruitment analyst. 
- 
-Your task is to thoroughly analyze the following Job Description (JD) and generate a structured set of **selection criteria** for evaluating candidate resumes. 
- 
-You must: 
-- Identify both **explicitly stated** and **implicitly expected** skills, experiences, or qualities. 
-- For each criterion, assign one of the following **priority categories**: 
-    - "Must-Have": Essential and required for the role. 
-    - "Nice-to-Have": Not required but valuable and relevant. 
-    - "Bonus Advantage": Extra qualities that make a candidate stand out, even if not asked for. 
-    - "Red Flag": Situations that indicate a candidate should be disqualified (e.g., missing a mandatory qualification). 
-- Provide a detailed **description** of what should be demonstrated in a resume for this criterion (e.g., tools used, certifications, years of experience, types of projects, soft skills, domains, etc.). 
- 
-Think like a senior recruiter: 
-- What makes a candidate clearly qualified? 
-- What would strengthen their case? 
-- What might be a concern or reason for exclusion? 
- 
---- 
- 
-Job Description: 
-{jd_text} 
- 
-Additional Instructions (optional): 
-{user_guidance} 
- 
---- 
- 
-Output Format: 
- 
-Return a JSON array. Strictly follow this format for each criterion: 
- 
-[ 
-  {{ 
-    "name": "Skill/Experience/Quality Name", 
-    "priority": "Must-Have / Nice-to-Have / Bonus Advantage / Red Flag", 
-    "description": "Explain how this should be demonstrated in the resume. Include tools, technologies, years of experience, certifications, or types of work." 
-  }}, 
-  ... 
-] 
- 
-Return only the JSON array. Do not include any explanation or commentary outside the array. 
-"""
+        prompt = f"""
+            You are an expert AI recruitment analyst.
+
+            Your task is to deeply analyze the following Job Description (JD) and generate a structured set of **selection criteria** that will be used to evaluate candidate resumes.
+
+            You must:
+            - Identify both **explicitly stated** and **implicitly expected** skills, experiences, or qualities that a strong candidate should demonstrate for this role.
+            - Assign a **"Must-Have: Yes/No"** flag to each, based on whether the criterion is essential or simply desirable.
+            - Assign a **weight (%)** to each, reflecting its relative importance in the role.
+            - Provide a clear and detailed **description** of what should be visible in a resume to demonstrate each criterion (e.g., tools, certifications, years of experience, domain exposure, soft skills, etc.).
+
+            Think like an experienced recruiter:
+            - What would you expect from top candidates even if not directly mentioned in the JD?
+            - Include domain-specific soft skills, work styles, or team collaboration expectations if relevant.
+            - Differentiate between mission-critical requirements and value-adding qualities.
+
+            ---
+
+            Job Description:
+            {jd_text}
+
+            Additional Instructions (optional):
+            {user_guidance}
+
+            ---
+
+            Output Format:
+
+            Return a JSON array. Strictly follow this exact format:
+            [
+            {{
+                "name": "Skill/Experience/Quality Name",
+                "must_have": "Yes/No",
+                "weight": "X%",
+                "description": "Explain how this should be demonstrated in the resume. Include tools, technologies, or evidence you expect to find."
+            }},
+            ...
+            ]
+
+            Ensure the total of all weights is close to 100%. Do not include any explanations outside the JSON array.
+            """
         try:
             response = self.model.generate_content(prompt)
             criteria_json = self._extract_json_from_response(response.text)
@@ -114,8 +112,7 @@ Return only the JSON array. Do not include any explanation or commentary outside
     
     def _validate_criteria(self, criteria: List[Dict]) -> List[Dict]:
         """Validate the structure of generated criteria."""
-        required_keys = ['name', 'priority', 'description']
-        valid_priorities = ['Must-Have', 'Nice-to-Have', 'Bonus Advantage', 'Red Flag']
+        required_keys = ['name', 'must_have', 'weight', 'description']
         
         if not criteria:
             raise ValueError("No criteria generated")
@@ -128,9 +125,21 @@ Return only the JSON array. Do not include any explanation or commentary outside
                 if key not in criterion:
                     raise ValueError(f"Missing '{key}' in criterion {i+1}")
             
-            # Validate priority field
-            if criterion['priority'] not in valid_priorities:
-                raise ValueError(f"Invalid priority value in criterion {i+1}: {criterion['priority']}. Must be one of: {', '.join(valid_priorities)}")
+            # Validate must_have field
+            if criterion['must_have'] not in ['Yes', 'No']:
+                raise ValueError(f"Invalid must_have value in criterion {i+1}: {criterion['must_have']}")
+            
+            # Validate weight format
+            weight_str = criterion['weight']
+            if not weight_str.endswith('%'):
+                raise ValueError(f"Weight must end with '%' in criterion {i+1}")
+            
+            try:
+                weight_value = float(weight_str[:-1])
+                if weight_value < 0 or weight_value > 100:
+                    raise ValueError(f"Weight must be between 0-100% in criterion {i+1}")
+            except ValueError:
+                raise ValueError(f"Invalid weight format in criterion {i+1}")
         
         return criteria
     
@@ -140,23 +149,20 @@ Return only the JSON array. Do not include any explanation or commentary outside
             return "No criteria generated"
         
         formatted = []
-        priority_counts = {}
+        total_weight = 0
         
         for i, criterion in enumerate(criteria, 1):
-            priority = criterion['priority']
-            priority_counts[priority] = priority_counts.get(priority, 0) + 1
+            weight_value = float(criterion['weight'][:-1])
+            total_weight += weight_value
             
             formatted.append(f"""
 **{i}. {criterion['name']}**
-- Priority: {criterion['priority']}
+- Must-Have: {criterion['must_have']}
+- Weight: {criterion['weight']}
 - Description: {criterion['description']}
 """)
         
         result = "\n".join(formatted)
-        
-        # Add summary
-        result += "\n\n**Summary:**\n"
-        for priority, count in priority_counts.items():
-            result += f"- {priority}: {count} criteria\n"
+        result += f"\n\n**Total Weight: {total_weight:.1f}%**"
         
         return result
