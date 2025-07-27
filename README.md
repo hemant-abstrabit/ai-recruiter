@@ -1,2 +1,1 @@
-# ai-recruiter
-Test AI Recruiter
+# Criteria Generator
